@@ -8,8 +8,10 @@ import os
 import json
 import hashlib
 import uuid
+import jwt
 from functools import wraps
 
+SECRET_KEY = os.environ.get('SECRET_KEY')
 
 app = Flask(__name__)
 database = DataBase(os.environ.get('A2_DATABASE_HOST'),
@@ -17,36 +19,37 @@ database = DataBase(os.environ.get('A2_DATABASE_HOST'),
                     os.environ.get('A2_DATABASE_PASSWORD'),
                     os.environ.get('A2_DATABASE_NAME'))
 
-
 def login_admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         cookie = request.cookies.get("sessionId", "")
-        cookie = base64.b64decode(cookie).decode("utf-8")
-        cookie_separado = cookie.split('.')
-        if(len(cookie_separado) != 2):
-            return "Invalid cookie!"
-        hash_cookie = hashlib.sha256(cookie_separado[0].encode('utf-8')).hexdigest()
-        if (hash_cookie != cookie_separado[1]):
-            return redirect("/login")
-        j = json.loads(cookie_separado[0])
-        if j.get("permissao") != 1:
-            return "You don't have permission to access this route. You are not an admin. \n"
+        if not cookie:
+            return "There`s no cookies here"
+        try:
+            encoded = jwt.decode(cookie, SECRET_KEY, algorithms=['HS256'])
+        except:
+            if (encoded and not encoded.get("username")):
+                return "That`s not a valid cookie!"
+
+        if (encoded.get("permissao") != 1):
+             return "You don't have permission to access this route. You are not an admin. \n"  
         return f(*args, **kwargs)
     return decorated_function
-
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         cookie = request.cookies.get("sessionId", "")
-        cookie = base64.b64decode(cookie).decode("utf-8")
-        cookie_separado = cookie.split('.')
-        if(len(cookie_separado) != 2):
-            return "Invalid cookie! \n"
-        hash_cookie = hashlib.sha256(cookie_separado[0].encode('utf-8')).hexdigest()
-        if (hash_cookie != cookie_separado[1]):
+        if not cookie:
             return redirect("/login")
+        try:
+            encoded = jwt.decode(cookie, SECRET_KEY, algorithms=['HS256'])
+        except:
+            if (encoded and not encoded.get("username")):
+                return "That`s not a valid cookie!"
+
+        if (encoded.get("permissao") != 1):
+             return "You don't have permission to access this route. You are not an admin. \n"      
         return f(*args, **kwargs)
     return decorated_function
 
@@ -101,14 +104,11 @@ def login():
         password = Password(form_password, form_username, result[2])
         if not password.validate_password(result[0]):
             return "Login failed! \n"
-
+  
         cookie_dic = {"permissao": result[1], "username": form_username}
-        cookie = json.dumps(cookie_dic)
-        hash_cookie = hashlib.sha256(cookie.encode('utf-8')).hexdigest()
-        cookie_done = '.'.join([cookie,hash_cookie])
-        cookie_done = base64.b64encode(str(cookie_done).encode("utf-8"))
+        encodedCookie = jwt.encode(cookie_dic, SECRET_KEY, algorithm='HS256')
         resp = make_response()
-        resp.set_cookie("sessionId", cookie_done)
+        resp.set_cookie("sessionId", encodedCookie)
         return resp
 
 
